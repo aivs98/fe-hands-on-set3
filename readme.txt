@@ -1,29 +1,27 @@
-To run it: unzip, then npm install, npm run dev, and npm test. The three acceptance cases for the form (10:30–11:30 blocked, 11:00–12:00 allowed, 09:00–12:00 over a 10:00–10:30 booking blocked) gave the expected results in a quick Node check of the validation code.
-
 Project structure
-room-booking/
-├── index.html
-├── package.json            React 18, Vite, Vitest
-├── vite.config.js
+meeting-planner/
+├── index.html, package.json, tsconfig.json, vite.config.ts
 └── src/
-    ├── main.jsx            entry point
-    ├── App.jsx             page state: loading, create, optimistic cancel, notices
-    ├── styles.css          light and dark themes, responsive, visible focus
-    ├── api/mockApi.js      fake backend (rooms, bookings, create, cancel)
-    ├── hooks/useUrlView.js room and date stored in the URL
+    ├── main.tsx, App.tsx, styles.css
+    ├── types.ts                     Interval, Person, Room, Booking
+    ├── api/mockApi.ts               people, rooms, bookings with attendees, endpoints
     ├── lib/
-    │   ├── time.js         minutes/"HH:MM" helpers, date helpers
-    │   ├── validation.js   all booking rules (pure functions)
-    │   └── validation.test.js
+    │   ├── freeSlots.ts             the pure, typed free-slot calculation
+    │   ├── freeSlots.test.ts
+    │   ├── latest.ts                "latest request wins" guard
+    │   ├── latest.test.ts
+    │   └── time.ts                  small time and date helpers
+    ├── hooks/useAvailability.ts     fetching, 10-second refresh, hidden-tab pause
     └── components/
-        ├── Schedule.jsx    day timeline, free gaps, inline cancel confirm
-        └── BookingForm.jsx form with per-field errors
+        ├── AttendeePicker.tsx       searchable checkbox list
+        ├── Timeline.tsx             rows, free slots, keyboard handling
+        └── BookingDialog.tsx        start time, room and confirm
 How it works
-Mock API: every call waits a random 300–800 ms. Creating a booking fails 10% of the time with a “try again” message. It also re-checks for overlaps on the server side, which is what produces the “someone just booked this room” rejection. I also made cancelling fail 10% of the time, which the spec didn’t ask for, so the rollback is easy to see.
-URL state: the room and date live in ?room=aurora&date=2026-11-20. Back/forward and refresh restore the view, and missing or invalid values fall back to the first room and today.
-Schedule: bookings appear in time order from 09:00 to 18:00, with the free gaps between them shown as dashed rows. Clicking a free gap pre-fills the form’s start and end.
-Validation: validateBooking checks title, hours, start before end, the 4-hour limit, valid and unique emails, and overlap. Overlap is start < existing.end && end > existing.start, so back-to-back bookings pass and a booking that covers another one is blocked. Both the form and the mock server use the same overlap check.
-Errors in the form: each error shows beside its field and appears after you touch the field or press submit. Time errors sit under the time row, and the first invalid field gets focus on submit.
-API rejections: the reason is shown and everything you typed stays. After a conflict, the schedule refreshes so you can see the booking that blocked you.
-Cancel: clicking “Cancel meeting” opens an inline “Yes, cancel meeting / Keep it” confirmation. Confirming removes the card straight away. If the API call fails, the booking is put back and an error explains why. Results from a slow request are ignored if you’ve already switched room or date.
-Usability: it has loading skeletons, retry on load errors, add-by-Enter for emails with removable chips, a live duration next to the end time, and a disabled button while submitting to prevent double-booking. Colours work in light and dark mode.
+Free-slot function: findCommonFreeSlots(busyByPerson, minLength) clips every busy interval to 09:00–18:00, merges all of them into one sorted list, then returns each gap of at least minLength minutes. A gap exactly equal to D counts. It handles unsorted bookings and bookings inside or overlapping each other without special cases, and it doesn’t change its input.
+Mock API: each booking has an attendees list, and listBookingsForPeople(ids, date) returns every booking on that date that includes any of them. Availability calls take 300–1500 ms, so responses can arrive out of order on purpose.
+Booking in a room that fits: findAvailableRooms returns free rooms with enough seats, smallest first, and the dialog picks the first one.
+Booking a slot: clicking a free slot opens a dialog where you can choose the start time within that slot (the length stays D). The mock API rejects a booking 25% of the time as if a colleague got there first, and the colleague’s booking really is added. The dialog closes and shows the conflict, and availability reloads, so the taken slot disappears.
+Refresh: the hook reloads every 10 seconds, stops the timer when the tab is hidden, and reloads immediately when you come back. The page shows “Paused while this tab is hidden” meanwhile.
+Late responses: each request gets a token from createLatest(), and only the newest token’s response is applied. Results are also tagged with the date and attendee selection they belong to, and the screen shows only results for the current selection. Switching attendees quickly therefore shows a loading state, never the previous selection’s data. latest.test.ts simulates a slow response arriving after a fast one.
+Keyboard and screen readers: the free row is a listbox where the arrow keys, Home and End move between slots, and Enter books the focused one. Each slot is announced as “Free 11:00 to 13:00”. Each person’s row has a spoken summary such as “Alice: busy 09:30 to 11:00”.
+Responsiveness with 30 attendees × 20 bookings: merging 600 intervals takes well under a millisecond. Changing D only recomputes the free slots, and the per-person rows are memoised so they don’t re-render. A test checks 30×20 intervals across every length option and fails if it takes more than 100 ms.
